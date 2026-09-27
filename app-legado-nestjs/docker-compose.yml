@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bodyquote_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_dev_senha
+      POSTGRES_DB: bodyquote_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis para rate limiting e cache de sessão (futuro)
+  redis:
+    image: redis:7-alpine
+    container_name: bodyquote_redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass redis_dev_senha
+    volumes:
+      - redis_data:/data
+
+  # Mailpit: captura emails em dev (não envia de verdade)
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: bodyquote_mail
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Interface web → http://localhost:8025
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+volumes:
+  postgres_data:
+  redis_data:

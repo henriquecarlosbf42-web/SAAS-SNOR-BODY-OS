@@ -1,0 +1,340 @@
+// Schema Prisma — BodyQuote SaaS
+// Banco: PostgreSQL | Multi-tenancy: Row-Level Security por shop_id
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_DIRECT_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  PAUSED
+}
+
+enum SubscriptionPlan {
+  STARTER
+  GROWTH
+  PRO
+}
+
+enum QuoteStatus {
+  PENDING
+  IN_REVIEW
+  QUOTED
+  APPROVED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  NO_SHOW
+  CANCELLED
+}
+
+enum ServiceCategory {
+  COLLISION_REPAIR
+  PAINT_JOB
+  DENT_REMOVAL
+  POLISHING
+  GLASS_REPLACEMENT
+  FRAME_STRAIGHTENING
+  OTHER
+}
+
+enum UserRole {
+  OWNER
+  MANAGER
+  ESTIMATOR
+  RECEPTIONIST
+}
+
+// ============================================================
+// SHOPS (tenants)
+// ============================================================
+
+model Shop {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  email          String   @unique
+  phone          String?
+  website        String?
+  address        String?
+  city           String?
+  state          String?
+  country        String   @default("US")
+  zip_code       String?
+  logo_url       String?
+  timezone       String   @default("America/New_York")
+  default_locale String   @default("en")
+  is_active      Boolean  @default(true)
+  is_verified    Boolean  @default(false)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  users         ShopUser[]
+  subscription  ShopSubscription?
+  services      ShopService[]
+  availability  ShopAvailability[]
+  quotes        Quote[]
+  audit_logs    AuditLog[]
+
+  @@map("shops")
+}
+
+// ============================================================
+// SHOP USERS
+// ============================================================
+
+model ShopUser {
+  id         String   @id @default(cuid())
+  shop_id    String
+  clerk_id   String   @unique
+  email      String
+  name       String
+  role       UserRole @default(ESTIMATOR)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  shop Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+
+  @@index([shop_id])
+  @@map("shop_users")
+}
+
+// ============================================================
+// SUBSCRIPTIONS (Stripe)
+// ============================================================
+
+model ShopSubscription {
+  id                     String             @id @default(cuid())
+  shop_id                String             @unique
+  stripe_customer_id     String             @unique
+  stripe_subscription_id String             @unique
+  plan                   SubscriptionPlan
+  status                 SubscriptionStatus
+  current_period_start   DateTime
+  current_period_end     DateTime
+  trial_ends_at          DateTime?
+  cancel_at              DateTime?
+  created_at             DateTime           @default(now())
+  updated_at             DateTime           @updatedAt
+
+  shop Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+
+  @@map("shop_subscriptions")
+}
+
+// ============================================================
+// SHOP SERVICES
+// ============================================================
+
+model ShopService {
+  id          String          @id @default(cuid())
+  shop_id     String
+  category    ServiceCategory
+  name        String
+  description String?
+  is_active   Boolean         @default(true)
+  sort_order  Int             @default(0)
+  created_at  DateTime        @default(now())
+  updated_at  DateTime        @updatedAt
+
+  shop        Shop        @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+  quote_items QuoteItem[]
+
+  @@index([shop_id])
+  @@map("shop_services")
+}
+
+// ============================================================
+// SHOP AVAILABILITY
+// ============================================================
+
+model ShopAvailability {
+  id          String  @id @default(cuid())
+  shop_id     String
+  day_of_week Int     // 0=Sun ... 6=Sat
+  open_time   String  // "08:00"
+  close_time  String  // "18:00"
+  is_active   Boolean @default(true)
+
+  shop Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+
+  @@index([shop_id])
+  @@map("shop_availability")
+}
+
+// ============================================================
+// CUSTOMERS (clientes finais — globais, sem tenant)
+// ============================================================
+
+model Customer {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  name       String
+  phone      String?
+  locale     String   @default("en")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  quotes Quote[]
+
+  @@map("customers")
+}
+
+// ============================================================
+// QUOTES (core do sistema)
+// ============================================================
+
+model Quote {
+  id               String          @id @default(cuid())
+  shop_id          String
+  customer_id      String
+  status           QuoteStatus     @default(PENDING)
+  reference_code   String          @unique @default(cuid())
+
+  // Veículo
+  vehicle_make     String
+  vehicle_model    String
+  vehicle_year     Int
+  vehicle_color    String?
+  vehicle_vin      String?
+
+  // Serviço solicitado
+  service_category  ServiceCategory
+  damage_description String         @db.Text
+  notes             String?         @db.Text
+
+  // Resposta da funilaria
+  estimated_price  Decimal?        @db.Decimal(10, 2)
+  estimated_days   Int?
+  shop_notes       String?         @db.Text
+  quote_expires_at DateTime?
+
+  // Segurança/auditoria
+  ip_address       String?
+  user_agent       String?
+
+  created_at       DateTime        @default(now())
+  updated_at       DateTime        @updatedAt
+
+  shop        Shop         @relation(fields: [shop_id], references: [id])
+  customer    Customer     @relation(fields: [customer_id], references: [id])
+  photos      QuotePhoto[]
+  items       QuoteItem[]
+  appointment Appointment?
+
+  @@index([shop_id])
+  @@index([customer_id])
+  @@index([shop_id, status])
+  @@map("quotes")
+}
+
+// ============================================================
+// QUOTE PHOTOS
+// ============================================================
+
+model QuotePhoto {
+  id         String   @id @default(cuid())
+  quote_id   String
+  shop_id    String
+  url        String
+  key        String
+  size_bytes Int
+  mime_type  String
+  sort_order Int      @default(0)
+  created_at DateTime @default(now())
+
+  quote Quote @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+
+  @@index([quote_id])
+  @@index([shop_id])
+  @@map("quote_photos")
+}
+
+// ============================================================
+// QUOTE ITEMS
+// ============================================================
+
+model QuoteItem {
+  id          String   @id @default(cuid())
+  quote_id    String
+  shop_id     String
+  service_id  String?
+  description String
+  quantity    Int      @default(1)
+  unit_price  Decimal  @db.Decimal(10, 2)
+  total_price Decimal  @db.Decimal(10, 2)
+
+  quote   Quote        @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+  service ShopService? @relation(fields: [service_id], references: [id])
+
+  @@index([quote_id])
+  @@index([shop_id])
+  @@map("quote_items")
+}
+
+// ============================================================
+// APPOINTMENTS
+// ============================================================
+
+model Appointment {
+  id           String            @id @default(cuid())
+  quote_id     String            @unique
+  shop_id      String
+  scheduled_at DateTime
+  duration_min Int               @default(60)
+  status       AppointmentStatus @default(SCHEDULED)
+  notes        String?
+  created_at   DateTime          @default(now())
+  updated_at   DateTime          @updatedAt
+
+  quote Quote @relation(fields: [quote_id], references: [id])
+
+  @@index([shop_id])
+  @@index([shop_id, scheduled_at])
+  @@map("appointments")
+}
+
+// ============================================================
+// AUDIT LOG (imutável)
+// ============================================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  shop_id     String?
+  actor_id    String?
+  actor_type  String   // "shop_user" | "customer" | "system"
+  action      String   // ex: "quote.created", "user.login"
+  entity_type String
+  entity_id   String?
+  metadata    Json?
+  ip_address  String?
+  created_at  DateTime @default(now())
+
+  shop Shop? @relation(fields: [shop_id], references: [id])
+
+  @@index([shop_id])
+  @@index([action])
+  @@index([shop_id, created_at(sort: Desc)])
+  @@map("audit_logs")
+}
