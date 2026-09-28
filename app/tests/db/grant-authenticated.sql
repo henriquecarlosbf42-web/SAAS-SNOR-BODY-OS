@@ -7,5 +7,7 @@
 -- anônima), não a ausência de GRANT — é isso que este teste precisa
 -- provar, não simular via um atalho de permissão diferente.
 grant select, insert, update, delete on
-  profiles, tenants, tenant_memberships, tenant_settings, locations
+  profiles, tenants, tenant_memberships, tenant_settings, locations,
+  customers, vehicles, leads, conversations, messages, conversation_participants,
+  ai_agents, ai_agent_instructions, ai_agent_usage
   to authenticated, anon;

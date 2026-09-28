@@ -1,11 +1,10 @@
 # Database — SNOR FUNILARIA
 
-> v2 — 2026-09-27 (ETAPA 03). Seção 1 abaixo está **implementada** —
-> migrations reais em `app/supabase/migrations/`, testadas contra Postgres
-> de verdade (ver DEVELOPMENT.md / relatório da ETAPA 03). Seções 2 em
-> diante continuam **design**, não implementadas ainda (etapas futuras,
-> aguardando autorização — ver `CLAUDE.md`: "não criar ainda CRM,
-> clientes, veículos, OS, estoque, financeiro").
+> v5 — 2026-09-27 (ETAPA 09). Seções 1, 2, 2A e 2B abaixo estão implementadas —
+> migrations reais em `app/supabase/migrations/`, testadas com PGlite.
+> A migration 2B do agente de IA foi aplicada ao Supabase remoto em
+> 2026-09-27; o projeto ainda não tem tenants para provisionar agentes.
+> Seções 3 em diante continuam design e aguardam suas próprias etapas.
 >
 > Convenção geral: `uuid` como PK (`gen_random_uuid()`),
 > `created_at`/`updated_at` em tudo (trigger `set_updated_at`
@@ -269,7 +268,7 @@ ganhar granularidade por location numa etapa futura).
   não contra `supabase start` nem um projeto na nuvem. Aplicar de
   verdade é uma etapa futura que depende da conta do usuário.
 
-## 2. CRM — Clientes e Veículos
+## 2. CRM — Clientes e Veículos — IMPLEMENTADO (ETAPA 07)
 
 ```sql
 create table customers (
@@ -284,7 +283,9 @@ create table customers (
   updated_at   timestamptz not null default now(),
   deleted_at   timestamptz
 );
-create index idx_customers_tenant on customers (tenant_id);
+create index idx_customers_active_tenant_name
+  on customers (tenant_id, name)
+  where deleted_at is null;
 
 create table vehicles (
   id           uuid primary key default gen_random_uuid(),
@@ -297,11 +298,69 @@ create table vehicles (
   vin          text,
   plate        text,
   created_at   timestamptz not null default now(),
-  updated_at   timestamptz not null default now()
+  updated_at   timestamptz not null default now(),
+  deleted_at   timestamptz,
+
+  foreign key (tenant_id, customer_id)
+    references customers (tenant_id, id)
+    on delete cascade
 );
-create index idx_vehicles_tenant on vehicles (tenant_id);
-create index idx_vehicles_customer on vehicles (customer_id);
+create index idx_vehicles_active_tenant on vehicles (tenant_id) where deleted_at is null;
+create index idx_vehicles_active_customer on vehicles (tenant_id, customer_id) where deleted_at is null;
 ```
+
+The implemented schema adds database constraints for input lengths/year,
+active VIN uniqueness per tenant, and a composite `(tenant_id, customer_id)`
+foreign key. This prevents linking a vehicle to a customer in another tenant,
+even if an application-layer check is bypassed. Customer and vehicle records
+are archived with `deleted_at`; physical deletes are denied by RLS.
+
+RLS allows members to read CRM records and restricts insert/update to
+`OWNER`, `ADMIN`, `MANAGER`, and `SALES` via
+`public.is_tenant_crm_writer(tenant_id)`.
+
+## 2A. Conversas — IMPLEMENTADO (ETAPA 08)
+
+`leads` is the minimal tenant-scoped prospect record required because no
+lead entity existed in the schema before this module. A conversation belongs
+to exactly one lead and tenant through a composite foreign key.
+
+`conversations` stores status (`OPEN`, `AI_ACTIVE`, `HUMAN_ACTIVE`, `CLOSED`)
+and optional `assigned_to`. `conversation_participants` tracks shop agents
+and their `last_read_at`; unread counts are calculated from messages newer
+than each reader's timestamp. `messages` always has a required `tenant_id`
+and a composite foreign key to its conversation.
+
+RLS permits conversation/lead/message reads to OWNER, ADMIN, MANAGER, SALES,
+ESTIMATOR, FINANCE, and VIEWER. Writes are limited to OWNER, ADMIN, MANAGER,
+and SALES. TECHNICIAN and anonymous users have no access. Agent replies are
+allowed only after human takeover, for the currently assigned agent. Direct
+message edit/delete and physical deletion of conversation records are denied.
+
+Incoming messages in this phase are recorded through an authenticated
+tenant action; anonymous portal and provider/webhook ingestion are separate
+future work.
+
+## 2B. AI Agent — núcleo implementado (ETAPA 09)
+
+Migration `20260927220000_create_ai_agents.sql` provisions one disabled agent
+for every existing tenant and creates an agent automatically for each new
+tenant. `ai_agents.tenant_id` is unique; business configuration, instructions,
+knowledge, and token usage are tenant-scoped.
+
+`ai_agent_instructions` stores the tenant's additional instructions and
+business knowledge as separate records. `ai_agent_usage` records the model,
+response id, prompt tokens, completion tokens, conversation, and tenant.
+Usage and any AI response message are written atomically by a validated
+`SECURITY DEFINER` function, callable only with `service_role`; it rechecks
+the active actor membership and suppresses a late AI reply after takeover.
+
+RLS allows conversation readers to read agent configuration/instructions,
+OWNER/ADMIN to change configuration and read usage, and denies direct usage
+inserts/updates/deletes. The RPCs separately validate active membership,
+role, tenant, conversation state, and enabled configuration. Customer messages
+remain in `LEAD` message rows; AI replies use `SYSTEM` sender type.
+Disabling an agent returns its `AI_ACTIVE` conversations to `OPEN`.
 
 ## 3. Orçamento
 
@@ -535,7 +594,7 @@ create index idx_ai_kb_tenant on ai_knowledge_base (tenant_id);
 > `tenant_memberships` causa recursão de RLS. Tabelas futuras (seções
 > 2-9) devem seguir esse padrão novo, não o antigo.
 
-Habilitar em **toda** tabela com `tenant_id` (todas das seções 2-9,
+Habilitar em **toda** tabela com `tenant_id` (todas das seções 3-9,
 exceto `tenants` e `tenant_memberships`, que já têm política própria —
 seção 1):
 
@@ -559,12 +618,12 @@ diferente do tenant autorizado mesmo com o `using` correto de leitura.
 
 ---
 
-## 11. O que falta (fora do escopo das seções 2-9, ainda design)
+## 11. O que falta (fora do escopo das seções 3-9, ainda design)
 
-- Migrations reais das seções 2-9 (CRM, orçamento, OS, produção,
+- Migrations reais das seções 3-9 (orçamento, OS, produção,
   estoque, compras, financeiro, entrega, pós-venda, billing, analytics,
-  AI knowledge base) — a seção 1 (núcleo tenant/membership/location) já
-  está implementada, ver lá em cima
+  AI knowledge base) — núcleo, CRM e conversas estão implementados, ver
+  seções 1, 2 e 2A
 - Policies de Storage (buckets `quote-photos`, `delivery-signatures`)
   tenant-scoped
 - Seeds de desenvolvimento

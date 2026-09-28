@@ -28,8 +28,8 @@ Projeto interno — produto próprio pra venda internacional.
 
 - App web (SaaS) — painel da oficina + portal do cliente
 - Multi-tenant com isolamento por `tenant_id` + RLS
-- Módulos: orçamento, CRM, veículos, OS, produção, estoque, compras,
-  financeiro, entrega, pós-venda
+- Módulos: CRM, conversas, orçamento, veículos, OS, produção, estoque,
+  compras, financeiro, entrega, pós-venda
 
 ## Onde salvar o que
 
@@ -99,6 +99,7 @@ Nunca usar somente ocultação de interface para controle de acesso — o
 backend/banco deve validar permissões sempre.
 
 **Princípio:**
+
 > O usuário autenticado determina o tenant.
 > O tenant determina os dados acessíveis.
 > O role determina as ações permitidas.
@@ -150,6 +151,7 @@ financeiro, estoque e dados/knowledge base de IA.
 O projeto será desenvolvido em etapas pequenas, isoladas e validáveis.
 
 **Antes de implementar uma etapa:**
+
 1. Analisar o código existente
 2. Verificar arquitetura
 3. Identificar arquivos afetados
@@ -157,6 +159,7 @@ O projeto será desenvolvido em etapas pequenas, isoladas e validáveis.
 5. Implementar somente o escopo solicitado
 
 **Depois de implementar:**
+
 1. Executar testes
 2. Executar lint
 3. Executar typecheck
@@ -236,8 +239,8 @@ Manter atualizados dentro do projeto:
 - `TEST_REPORT.md`
 - `PRODUCTION_CHECKLIST.md`
 
-> Ainda não criados — serão adicionados conforme as etapas de arquitetura
-> e implementação forem avançando.
+> `TEST_REPORT.md` é atualizado por etapa. `PRODUCTION_CHECKLIST.md`
+> continua pendente até a preparação de release.
 
 ---
 

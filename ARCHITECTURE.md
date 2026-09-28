@@ -4,8 +4,13 @@
 > Substitui a v1 anterior deste arquivo, que cobria só um subconjunto.
 > Detalhe de schema SQL vive em `DATABASE.md`; detalhe de controles de
 > segurança vive em `SECURITY.md` — aqui eles são referenciados, não
-> duplicados por inteiro. Nenhuma tela, funcionalidade ou dado foi
-> implementado nessa etapa.
+> duplicados por inteiro. Este documento começou como desenho; o estado
+> atualizado das funcionalidades aparece abaixo.
+>
+> Atualizado na ETAPA 07: CRM de clientes e veículos implementado em
+> `app/src/`; os demais módulos continuam no desenho.
+> Atualizado na ETAPA 09: núcleo do AI Agent multi-tenant implementado;
+> portal público, Twilio e webhooks permanecem fora do escopo.
 
 ---
 
@@ -37,6 +42,7 @@ Storage + Edge Functions), sem serviço backend separado.
 ```
 
 Dois públicos, duas superfícies:
+
 - **Oficina** (OWNER…VIEWER): opera o pipeline completo do negócio.
 - **Cliente final**: só interage via Portal do Cliente, sem conta,
   acesso por link com token (seção 20).
@@ -86,6 +92,9 @@ lib/
 ├── integrations/ → clients dos serviços externos (23)
 └── db/           → tipos gerados do schema
 ```
+
+Data access for business modules lives in `server/<module>/data.ts`
+(`server-only`); Server Actions authorize and validate before calling it.
 
 ---
 
@@ -174,6 +183,7 @@ SALES, ESTIMATOR, TECHNICIAN, FINANCE, VIEWER`. Matriz completa
 ação × módulo × papel: `SECURITY.md` seção 1.
 
 Duas camadas obrigatórias, nenhuma substitui a outra:
+
 1. **RLS** — quando o dado é sensível o suficiente pra restringir por
    papel além de tenant (ex.: financeiro, produção por técnico).
 2. **App** — `lib/auth/rbac.ts` (`requireRole`) chamado no início de
@@ -234,7 +244,7 @@ Fluxo detalhado: seção "Fluxo de autenticação" mais abaixo.
 
 ---
 
-## 12. CRM (Clientes)
+## 12. CRM (Clientes) — IMPLEMENTADO (ETAPA 07)
 
 Entidade `customers`, tenant-scoped (diferente do desenho antigo do
 scaffold NestJS, onde `Customer` era global/compartilhado entre
@@ -242,11 +252,29 @@ oficinas — mudança justificada pela regra de isolamento de dado de
 cliente do `CLAUDE.md`). Cada oficina tem sua própria base de clientes,
 sem visibilidade cruzada.
 
-Responsabilidade do módulo: cadastro, histórico de contato, anotações.
-Não inclui veículo (módulo próprio, seção 14) nem orçamento (módulo
-próprio, seção 13) — CRM é dono só da entidade pessoa/empresa cliente.
+Responsabilidade do módulo: cadastro, histórico de contato, anotações,
+e vínculo de veículos por cliente. O código vive em
+`lib/domains/crm/`, `server/crm/` e `features/crm/`. As páginas e Server
+Actions validam `crm:read`/`crm:write`; o banco reforça isolamento por
+tenant, papel de escrita, vínculo cliente-veículo e exclusão lógica.
+Orçamentos seguem sendo um módulo separado.
 
 Dependência: nenhuma (módulo raiz do pipeline).
+
+---
+
+## 12A. Conversas — IMPLEMENTADO (ETAPA 08)
+
+The authenticated inbox manages tenant-scoped leads and conversations.
+Each conversation belongs to one lead; messages carry `tenant_id` and a
+composite foreign key to that conversation. `conversation_participants`
+stores agent participation and per-agent read timestamps. Owners, admins,
+managers, and sales agents can assign, take over, reply to, close, and reopen
+conversations. Human replies require `HUMAN_ACTIVE` and the agent to be
+assigned. `AI_ACTIVE` is reserved for a future AI implementation.
+
+No Twilio, AI, external inbound messaging, or client-facing messaging is
+implemented in this stage.
 
 ---
 
@@ -358,21 +386,24 @@ dado de outro registro do mesmo tenant.
 
 ---
 
-## 21. IA
+## 21. IA — núcleo implementado (ETAPA 09)
 
-Atendimento inicial (qualificação de lead no formulário público) e,
-futuramente, sugestão de cotação. Duas garantias arquiteturais
-(regra absoluta nº 23/24, detalhado em `SECURITY.md` seção 6):
+Cada tenant possui um registro `ai_agents`, instruções e conhecimento
+próprios (`ai_agent_instructions`), além de `ai_agent_usage`. A chamada ao
+OpenAI acontece em `services/openai.ts` no servidor. Configuração, histórico
+e contexto são carregados com o tenant da sessão; a persistência de resposta
+e tokens é atômica e revalida o estado `AI_ACTIVE`.
 
-- System prompt fixo, versionado em código, nunca concatenado com input
-  de tenant/cliente.
-- Conteúdo recuperado (Knowledge Base, RAG) e input do usuário entram
-  como **dado** em campo estruturado, nunca como parte da instrução.
-- IA nunca executa ação que persiste dado diretamente — toda ação passa
-  pela mesma Server Action com `requireRole`, como se fosse um humano.
+O prompt mantém instruções fixas no papel `system`, configuração,
+conhecimento e instruções do tenant em mensagens `developer`, e mensagens
+dos clientes isoladas no papel `user`. Texto do cliente não é concatenado
+ao prompt do sistema. A IA não possui tools para executar operações.
+`HUMAN_ACTIVE` prevalece: takeover bloqueia a resposta de IA.
 
-`ai_knowledge_base` é tenant-scoped (RLS por `tenant_id`) — schema em
-`DATABASE.md` seção 9.
+A configuração e a transição para AI exigem autenticação e RBAC; portal
+público, ingestão por Twilio/webhook, RAG/embeddings e propostas/orçamentos
+gerados pela IA continuam fora desta etapa. A migration `20260927220000`
+está validada localmente; sua aplicação remota é uma ação separada.
 
 ---
 
@@ -387,7 +418,7 @@ acima, disparado por evento ou por tempo:
 - **Lembrete de agendamento**: X horas antes do `scheduled_at` da OS →
   Twilio/Resend pro cliente, evento no Google Calendar.
 - **Estoque baixo**: `inventory_items.quantity_on_hand <=
-  reorder_point` → alerta pra papel de Compras/Estoque.
+reorder_point` → alerta pra papel de Compras/Estoque.
 - **Cobrança em atraso**: `financial_transactions` tipo `RECEIVABLE`
   com `due_date` vencida → alerta pro Financeiro.
 
@@ -399,14 +430,14 @@ fica pra quando o módulo entrar em desenvolvimento.
 
 ## 23. Integrações externas
 
-| Serviço | Uso | Direção |
-|---|---|---|
-| OpenAI | Atendimento inicial, IA (21) | App → OpenAI |
-| Resend | Email transacional (orçamento, lembrete, convite) | App → Resend |
-| Twilio | SMS (lembrete, notificação) | App → Twilio, Twilio → webhook (26) |
-| Google Calendar | Agendamento de OS | App ↔ Google (OAuth por tenant) |
-| Paddle | Billing (24) | App → Paddle, Paddle → webhook (26) |
-| PostHog | Analytics (25) | App → PostHog |
+| Serviço         | Uso                                               | Direção                             |
+| --------------- | ------------------------------------------------- | ----------------------------------- |
+| OpenAI          | Respostas do AI Agent (21), server-only            | App → OpenAI                        |
+| Resend          | Email transacional (orçamento, lembrete, convite) | App → Resend                        |
+| Twilio          | SMS (lembrete, notificação)                       | App → Twilio, Twilio → webhook (26) |
+| Google Calendar | Agendamento de OS                                 | App ↔ Google (OAuth por tenant)     |
+| Paddle          | Billing (24)                                      | App → Paddle, Paddle → webhook (26) |
+| PostHog         | Analytics (25)                                    | App → PostHog                       |
 
 Toda credencial de integração fica server-side (`SECURITY.md` seção 3).
 Google Calendar exige OAuth por tenant (cada oficina conecta sua própria

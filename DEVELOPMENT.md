@@ -1,9 +1,8 @@
 # Development — SNOR FUNILARIA
 
-> Criado na ETAPA 02 (fundação técnica), atualizado a cada etapa desde
-> então — hoje reflete até a ETAPA 06 (banco real + auth/RBAC). Nenhum
-> módulo de negócio (CRM, orçamento, ERP) implementado ainda — ver
-> `ARCHITECTURE.md` pro desenho completo.
+> Criado na ETAPA 02 (fundação técnica), atualizado até a ETAPA 09
+> (núcleo do agente de IA). Orçamentos e demais módulos ERP ainda não
+> foram implementados — ver `ARCHITECTURE.md` pro desenho completo.
 
 ---
 
@@ -26,17 +25,17 @@
 
 ## Scripts
 
-| Comando | O que faz |
-|---|---|
-| `npm run dev` | Sobe o servidor de desenvolvimento |
-| `npm run build` | Build de produção |
-| `npm run start` | Roda o build de produção |
-| `npm run lint` | ESLint |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm run test` | Vitest (roda uma vez) |
-| `npm run test:watch` | Vitest em modo watch |
-| `npm run format` | Prettier aplica formatação |
-| `npm run format:check` | Prettier só verifica, não altera |
+| Comando                | O que faz                          |
+| ---------------------- | ---------------------------------- |
+| `npm run dev`          | Sobe o servidor de desenvolvimento |
+| `npm run build`        | Build de produção                  |
+| `npm run start`        | Roda o build de produção           |
+| `npm run lint`         | ESLint                             |
+| `npm run typecheck`    | `tsc --noEmit`                     |
+| `npm run test`         | Vitest (roda uma vez)              |
+| `npm run test:watch`   | Vitest em modo watch               |
+| `npm run format`       | Prettier aplica formatação         |
+| `npm run format:check` | Prettier só verifica, não altera   |
 
 Antes de considerar uma etapa pronta: `lint` + `typecheck` + `test` +
 `build` todos passando (regra do `CLAUDE.md`, seção "Regras de
@@ -105,48 +104,44 @@ caminho relativo longo tipo `../../../lib/...`.
   webhook).
 
 Pra desenvolver localmente: copiar `.env.example` pra `.env.local`
-(ignorado pelo git) e preencher com valores reais. Sem isso,
-`config/env.server.ts` lança erro explicando quais variáveis faltam
-(nunca loga o valor, só o nome).
+(ignorado pelo git) e preencher com valores reais. `OPENAI_API_KEY` e
+`SUPABASE_SERVICE_ROLE_KEY` são usadas somente no servidor; sem elas, o
+app impede ativar AI e não tenta chamar a OpenAI. A chave service-role só
+é usada na RPC estreita que grava resposta e usage.
 
-## Supabase local
+## Supabase local e remoto
 
-`supabase/migrations/` tem o schema real (tenants, memberships,
-locations, settings, profiles — ver `DATABASE.md`), testado via PGlite
-(`tests/db/`, sem Docker no ambiente). Projeto Supabase remoto ainda não
-existe/vinculado — precisa da conta do usuário. Até lá, `app/.env.local`
-tem valores **falsos** só pra `npm run build`/`dev` rodarem (o app não
-funciona de verdade sem credenciais reais).
+`supabase/migrations/` é testado via PGlite (`tests/db/`, sem Docker no
+ambiente). O projeto remoto `SAAS-SNOR-BODY-OS` está vinculado; migrations
+de núcleo, CRM, conversas e AI Agent foram aplicadas. A migration do AI
+Agent provisiona automaticamente um agente quando um tenant for criado;
+no momento ainda não há tenants registrados nesse projeto remoto.
 
-## Rotas (ETAPA 06)
+## Rotas (ETAPA 09)
 
 - `(public)/{login,signup,forgot-password,reset-password}` — fluxo de
   conta, sem autenticação
 - `auth/callback/route.ts` — troca `code` por sessão (confirmação de
   email, recovery, e futuro retorno de OAuth)
 - `(app)/` — protegido: `layout.tsx` redireciona pra `/login` sem sessão;
-  `page.tsx` é só um placeholder provando tenant resolution + RBAC
-  funcionando, nenhuma tela de negócio
+  contém CRM (`/customers`, `/vehicles`), Inbox (`/inbox`), configuração do
+  agente (`/settings/ai-agent`) e a home inicial, ainda placeholder
 - `src/proxy.ts` — proteção de rota "de UX" (Next.js 16 renomeou
   `middleware.ts` pra `proxy.ts`) + renovação do cookie de sessão; nunca
   a única barreira (`(app)/layout.tsx` + RLS são as reais)
 
-## O que NÃO existe ainda (por decisão, não esquecimento)
+## Estado atual e o que ainda NÃO existe
 
-- Nenhum módulo de negócio (CRM, orçamento, OS, estoque, financeiro,
-  portal do cliente).
-- `server/auth/actions.ts` existe (ETAPA 06); nenhuma outra Server Action
-  de negócio.
-- Nenhuma integração externa configurada (`services/` vazio).
-- Projeto Supabase remoto não criado — todo o código de auth (`lib/auth/`,
-  `lib/supabase/{server,browser}.ts`, `server/auth/actions.ts`,
-  `src/proxy.ts`) é real e passa lint/typecheck/build, mas não foi
-  integration-testado contra um backend de verdade (login/cadastro/
-  reset não podem ser clicados de ponta a ponta ainda). A lógica de
-  autorização em si (tenant resolution + RBAC) é testada com fakes —
-  ver `tests/lib/auth/`.
-- `lib/supabase/admin.ts` (`service_role`) ainda não existe — só entra
-  quando um webhook/Edge Function precisar.
+- CRM (ETAPA 07), conversas/Inbox (ETAPA 08) e núcleo do agente de IA
+  (ETAPA 09) estão implementados. O fluxo de entrada atual é autenticado
+  para membros da oficina; portal público, Twilio e webhooks não fazem
+  parte desta etapa.
+- A chamada OpenAI é server-only. Configure `OPENAI_API_KEY` no ambiente
+  do servidor antes de habilitar o AI Agent.
+- A migration de IA foi aplicada ao Supabase remoto. Antes de gerar
+  respostas, configure `OPENAI_API_KEY` e `SUPABASE_SERVICE_ROLE_KEY` no
+  ambiente seguro do servidor; não envie essas chaves pelo chat.
+- Orçamentos, OS, estoque, financeiro e portal do cliente ainda não existem.
 - Google/Microsoft: código pronto (`signInWithOAuth`), mas precisa ser
   habilitado no painel do projeto Supabase real pra funcionar. MFA: não
   implementado (nem UI de enrollment, nem checagem de AAL no login) —

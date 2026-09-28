@@ -19,6 +19,8 @@ describe("can() — sistema centralizado de permissões", () => {
     expect(can("VIEWER", "crm:write")).toBe(false);
     expect(can("VIEWER", "financeiro:write")).toBe(false);
     expect(can("VIEWER", "membros:read")).toBe(false); // nem ler membros
+    expect(can("VIEWER", "conversations:read")).toBe(true);
+    expect(can("VIEWER", "conversations:write")).toBe(false);
   });
 
   it("role inválida nunca autoriza nada (falha fechado)", () => {
@@ -48,6 +50,7 @@ describe("can() — sistema centralizado de permissões", () => {
     expect(can("TECHNICIAN", "compras:read")).toBe(false);
     expect(can("TECHNICIAN", "billing:read")).toBe(false);
     expect(can("TECHNICIAN", "crm:read")).toBe(false); // nem CRM
+    expect(can("TECHNICIAN", "conversations:read")).toBe(false);
   });
 
   it("alteração indevida de role: só OWNER escreve em membros (ADMIN só lê, nunca convida/promove)", () => {
@@ -74,7 +77,15 @@ describe("can() — sistema centralizado de permissões", () => {
       "configuracoes",
     ] as const;
 
-    for (const role of ["ADMIN", "MANAGER", "SALES", "ESTIMATOR", "TECHNICIAN", "FINANCE", "VIEWER"] as const) {
+    for (const role of [
+      "ADMIN",
+      "MANAGER",
+      "SALES",
+      "ESTIMATOR",
+      "TECHNICIAN",
+      "FINANCE",
+      "VIEWER",
+    ] as const) {
       for (const mod of modulesWithApprove) {
         expect(can(role, `${mod}:approve`)).toBe(false);
       }

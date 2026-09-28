@@ -19,6 +19,12 @@ as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;
 
+create or replace function auth.role() returns text
+language sql stable
+as $$
+  select nullif(current_setting('request.jwt.claim.role', true), '')
+$$;
+
 -- Roles não-superusuário, sem BYPASSRLS — equivalentes aos roles
 -- "authenticated" e "anon" que o Supabase provisiona de verdade. Sem
 -- isso, todas as queries rodariam como superuser e RLS nunca seria de
@@ -31,4 +37,5 @@ $$;
 -- grant-authenticated.sql, aplicado por setup.ts após as migrations.
 create role authenticated nosuperuser nobypassrls;
 create role anon nosuperuser nobypassrls;
-grant usage on schema public to authenticated, anon;
+create role service_role nosuperuser bypassrls;
+grant usage on schema public to authenticated, anon, service_role;

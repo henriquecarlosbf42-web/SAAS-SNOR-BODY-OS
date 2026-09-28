@@ -13,5 +13,13 @@ Esqueleto obrigatório de toda função aqui (ver ARCHITECTURE.md, seção
 4. chamar a função de domínio em `lib/domains/<modulo>`
 5. nunca devolver stack trace / detalhe interno em erro
 
-Vazio nessa etapa — fundação técnica apenas, sem Server Action de negócio
-ainda.
+`crm/actions.ts` valida autorização e payload antes de executar mutações;
+`crm/queries.ts` expõe leituras autorizadas para Server Components e
+`crm/data.ts` mantém o acesso ao Supabase no servidor.
+
+`conversations/` segue a mesma fronteira para Inbox, leitura de mensagens,
+atribuição, takeover humano e gestão de status.
+
+`ai-agent/` valida a permissão e deriva tenant/ator da sessão. O contexto
+é lido com o client autenticado; somente a RPC server-only de persistência
+usa `service_role`, restrita por grant de função e revalidação de membership.

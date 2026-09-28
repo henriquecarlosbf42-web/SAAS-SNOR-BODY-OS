@@ -15,6 +15,7 @@ import type { Role } from "./types";
 
 export type Module =
   | "crm"
+  | "conversations"
   | "orcamento"
   | "aprovacao_orcamento"
   | "ordem_servico"
@@ -55,6 +56,16 @@ const GRANT_ACTIONS: Record<Grant, Action[]> = {
  */
 const MATRIX: Record<Module, Record<Role, Grant>> = {
   crm: {
+    OWNER: "rwa",
+    ADMIN: "rw",
+    MANAGER: "rw",
+    SALES: "rw",
+    ESTIMATOR: "r",
+    TECHNICIAN: "",
+    FINANCE: "r",
+    VIEWER: "r",
+  },
+  conversations: {
     OWNER: "rwa",
     ADMIN: "rw",
     MANAGER: "rw",

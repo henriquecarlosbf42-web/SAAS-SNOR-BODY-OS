@@ -40,11 +40,19 @@ export async function loginAs(db: PGlite, userId: string | null) {
   await db.query("select set_config('request.jwt.claim.sub', $1, false)", [userId ?? ""]);
 }
 
+export async function asServiceRole<T>(db: PGlite, fn: () => Promise<T>): Promise<T> {
+  await db.query("select set_config('request.jwt.claim.role', 'service_role', false)");
+  await db.exec("set role service_role");
+  try {
+    return await fn();
+  } finally {
+    await db.exec("reset role");
+    await db.query("select set_config('request.jwt.claim.role', 'authenticated', false)");
+  }
+}
+
 /** Roda uma query como o role `authenticated` (não-superuser, sujeito a RLS). */
-export async function asAuthenticated<T>(
-  db: PGlite,
-  fn: () => Promise<T>,
-): Promise<T> {
+export async function asAuthenticated<T>(db: PGlite, fn: () => Promise<T>): Promise<T> {
   await db.exec("set role authenticated");
   try {
     return await fn();

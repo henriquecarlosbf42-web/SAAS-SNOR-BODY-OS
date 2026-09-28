@@ -1,9 +1,12 @@
 # Security — SNOR FUNILARIA
 
-> v2 — 2026-09-27 (ETAPA 05). Detalha como as regras absolutas do
+> v5 — 2026-09-27 (ETAPA 09). Detalha como as regras absolutas do
 > `CLAUDE.md` se aplicam nos pontos concretos definidos em
 > `ARCHITECTURE.md` e `DATABASE.md`. Atualizar conforme cada módulo for
-> implementado. Seção 1B é nova nesta etapa — RLS do núcleo
+> implementado. CRM de clientes e veículos foi implementado com RLS própria.
+> Conversas, leads, mensagens e configuração/uso do AI Agent têm policies
+> tenant-scoped.
+> Seção 1B documenta RLS do núcleo
 > (tenant/membership/location) agora com as 4 operações (SELECT/INSERT/
 > UPDATE/DELETE) explicitamente cobertas por policy e testadas.
 
@@ -16,21 +19,22 @@ status crítico, `—` sem acesso. RLS é a barreira real; essa matriz é o
 que a camada de app (`can()`/`requirePermission`, `lib/auth/permissions.ts`
 e `rbac.ts` — implementados na ETAPA 06) e a UI devem espelhar.
 
-| Módulo | OWNER | ADMIN | MANAGER | SALES | ESTIMATOR | TECHNICIAN | FINANCE | VIEWER |
-|---|---|---|---|---|---|---|---|---|
-| CRM (clientes/veículos) | RWA | RW | RW | RW | R | — | R | R |
-| Orçamento | RWA | RW | RW | RW | RW | — | R | R |
-| Aprovação de orçamento | RWA | RW | RW | RW | — | — | — | R |
-| Ordem de Serviço | RWA | RW | RW | R | R | R (só a própria) | — | R |
-| Produção (stages) | RWA | RW | RW | — | — | RW (só a própria OS) | — | R |
-| Estoque | RWA | RW | RW | — | — | R | R | R |
-| Compras | RWA | RW | RW | — | — | — | RW | R |
-| Financeiro | RWA | RW | R | — | — | — | RW | R |
-| Entrega | RWA | RW | RW | R | — | R | — | R |
-| Pós-venda | RWA | RW | RW | R | — | — | — | R |
-| Billing (assinatura do tenant) | RWA | — | — | — | — | — | — | — |
-| Membros/convites do tenant | RWA | R | — | — | — | — | — | — |
-| Configurações do tenant | RWA | RW | — | — | — | — | — | — |
+| Módulo                         | OWNER | ADMIN | MANAGER | SALES | ESTIMATOR | TECHNICIAN           | FINANCE | VIEWER |
+| ------------------------------ | ----- | ----- | ------- | ----- | --------- | -------------------- | ------- | ------ |
+| CRM (clientes/veículos)        | RWA   | RW    | RW      | RW    | R         | —                    | R       | R      |
+| Conversas                      | RWA   | RW    | RW      | RW    | R         | —                    | R       | R      |
+| Orçamento                      | RWA   | RW    | RW      | RW    | RW        | —                    | R       | R      |
+| Aprovação de orçamento         | RWA   | RW    | RW      | RW    | —         | —                    | —       | R      |
+| Ordem de Serviço               | RWA   | RW    | RW      | R     | R         | R (só a própria)     | —       | R      |
+| Produção (stages)              | RWA   | RW    | RW      | —     | —         | RW (só a própria OS) | —       | R      |
+| Estoque                        | RWA   | RW    | RW      | —     | —         | R                    | R       | R      |
+| Compras                        | RWA   | RW    | RW      | —     | —         | —                    | RW      | R      |
+| Financeiro                     | RWA   | RW    | R       | —     | —         | —                    | RW      | R      |
+| Entrega                        | RWA   | RW    | RW      | R     | —         | R                    | —       | R      |
+| Pós-venda                      | RWA   | RW    | RW      | R     | —         | —                    | —       | R      |
+| Billing (assinatura do tenant) | RWA   | —     | —       | —     | —         | —                    | —       | —      |
+| Membros/convites do tenant     | RWA   | R     | —       | —     | —         | —                    | —       | —      |
+| Configurações do tenant        | RWA   | RW    | —       | —     | —         | —                    | —       | —      |
 
 > Corrigido na ETAPA 06: "Membros/convites" tinha ADMIN=RW aqui, mas a
 > RLS de `tenant_memberships` (implementada e testada desde a ETAPA 03,
@@ -39,8 +43,9 @@ e `rbac.ts` — implementados na ETAPA 06) e a UI devem espelhar.
 > ADMIN=R, batendo com o código real (`lib/auth/permissions.ts`).
 
 Notas:
+
 - **TECHNICIAN** só enxerga OS/produção onde `service_orders.assigned_to
-  = auth.uid()` — isso é regra de RLS (linha adicional na policy da
+= auth.uid()` — isso é regra de RLS (linha adicional na policy da
   tabela, além do `tenant_id`), não só filtro de UI.
 - **FINANCE** não edita OS/produção mesmo tendo acesso de leitura amplo —
   separação intencional pra reduzir superfície de erro/fraude.
@@ -67,13 +72,35 @@ Convenção: **member** = `public.is_tenant_member(tenant_id)`, **admin** =
 `authenticated`/`anon`, só acontece via função `SECURITY DEFINER`
 (bypassa RLS por rodar como dono da tabela).
 
-| Tabela | SELECT | INSERT | UPDATE | DELETE |
-|---|---|---|---|---|
-| `profiles` | própria linha (`id = auth.uid()`) | `false` (trigger `handle_new_user`) | própria linha | `false` |
-| `tenants` | member | `false` (função `create_tenant_with_owner`) | admin | `false` |
-| `tenant_memberships` | própria linha OU admin do tenant | owner | owner | owner |
-| `tenant_settings` | member | `false` (trigger `handle_new_tenant`) | admin | `false` |
-| `locations` | member | admin | admin | admin |
+| Tabela                      | SELECT                                             | INSERT                                       | UPDATE                                               | DELETE                 |
+| --------------------------- | -------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------- | ---------------------- |
+| `profiles`                  | própria linha (`id = auth.uid()`)                  | `false` (trigger `handle_new_user`)          | própria linha                                        | `false`                |
+| `tenants`                   | member                                             | `false` (função `create_tenant_with_owner`)  | admin                                                | `false`                |
+| `tenant_memberships`        | própria linha OU admin do tenant                   | owner                                        | owner                                                | owner                  |
+| `tenant_settings`           | member                                             | `false` (trigger `handle_new_tenant`)        | admin                                                | `false`                |
+| `locations`                 | member                                             | admin                                        | admin                                                | admin                  |
+| `customers`, `vehicles`     | OWNER/ADMIN/MANAGER/SALES/ESTIMATOR/FINANCE/VIEWER | OWNER/ADMIN/MANAGER/SALES                    | OWNER/ADMIN/MANAGER/SALES                            | `false` (archive only) |
+| `leads`                     | conversation reader                                | OWNER/ADMIN/MANAGER/SALES                    | OWNER/ADMIN/MANAGER/SALES                            | `false`                |
+| `conversations`             | conversation reader                                | OWNER/ADMIN/MANAGER/SALES                    | OWNER/ADMIN/MANAGER/SALES; assignee must be eligible | `false`                |
+| `messages`                  | conversation reader                                | assigned agent on HUMAN_ACTIVE conversation  | `false`                                              | `false`                |
+| `conversation_participants` | own row or conversation writer                     | own read receipt or eligible agent by writer | own read receipt                                     | `false`                |
+| `ai_agents`, `ai_agent_instructions` | conversation reader                    | OWNER/ADMIN via validated function            | OWNER/ADMIN via validated function                   | `false`                |
+| `ai_agent_usage`            | OWNER/ADMIN                                         | validated AI response function                | `false`                                              | `false`                |
+
+CRM read/write policies use `public.is_tenant_crm_reader(tenant_id)` and
+`public.is_tenant_crm_writer(tenant_id)` and mirror the app permission
+matrix; TECHNICIAN has no CRM access. `vehicles` also uses a composite foreign key on
+`(tenant_id, customer_id)`, preventing cross-tenant customer references.
+Vehicle insert/update policies also require the linked customer to be active.
+Both tables use `deleted_at` for archival; direct physical deletion is
+denied.
+
+Conversation policies use `public.is_tenant_conversation_reader(tenant_id)`
+and `public.is_tenant_conversation_writer(tenant_id)`. `messages.tenant_id`
+is required and participates in a composite foreign key to the matching
+conversation; the same constraint pattern protects lead and assigned-agent
+references. Agent message inserts additionally require the authenticated
+sender to be the assigned agent on a `HUMAN_ACTIVE` conversation.
 
 Garantias verificadas por teste automatizado (não só design) em
 `tests/db/rls-isolation.test.ts` — 21 testes, rodando como `authenticated`
@@ -131,18 +158,19 @@ RLS padrão não protege essas rotas. Controles obrigatórios:
 
 ## 3. Secrets
 
-| Secret | Onde vive | Nunca |
-|---|---|---|
-| `SUPABASE_SERVICE_ROLE_KEY` | Env var server-only (Vercel/Edge Function) | No client, no repo, em log |
-| `SUPABASE_ANON_KEY` | Pode ir ao client (é pública por design, mas RLS é quem protege) | — |
-| `OPENAI_API_KEY` | Env var server-only | No client, no repo |
-| `RESEND_API_KEY` | Env var server-only | No client, no repo |
-| `TWILIO_AUTH_TOKEN` | Env var server-only | No client, no repo |
-| `PADDLE_API_KEY` / webhook secret | Env var server-only | No client, no repo |
-| `GOOGLE_CALENDAR` client secret / refresh tokens | Env var / tabela criptografada por tenant | No client, no repo, sem criptografia em repouso |
-| `POSTHOG` key | Pública (client-side por design do PostHog) | — |
+| Secret                                           | Onde vive                                                        | Nunca                                           |
+| ------------------------------------------------ | ---------------------------------------------------------------- | ----------------------------------------------- |
+| `SUPABASE_SERVICE_ROLE_KEY`                      | Env var server-only (Vercel/Edge Function)                       | No client, no repo, em log                      |
+| `SUPABASE_ANON_KEY`                              | Pode ir ao client (é pública por design, mas RLS é quem protege) | —                                               |
+| `OPENAI_API_KEY`                                 | Env var server-only                                              | No client, no repo                              |
+| `RESEND_API_KEY`                                 | Env var server-only                                              | No client, no repo                              |
+| `TWILIO_AUTH_TOKEN`                              | Env var server-only                                              | No client, no repo                              |
+| `PADDLE_API_KEY` / webhook secret                | Env var server-only                                              | No client, no repo                              |
+| `GOOGLE_CALENDAR` client secret / refresh tokens | Env var / tabela criptografada por tenant                        | No client, no repo, sem criptografia em repouso |
+| `POSTHOG` key                                    | Pública (client-side por design do PostHog)                      | —                                               |
 
 Regras gerais:
+
 - `.env.example` no repo com nomes de variável e descrição, nunca valor
   real.
 - Nenhum secret em `console.log`/logger — revisar antes de mergear
@@ -154,11 +182,11 @@ Regras gerais:
 
 ## 4. Webhooks
 
-| Provider | Validação de assinatura | Idempotência |
-|---|---|---|
-| Paddle | Verificar assinatura do webhook (chave pública Paddle) antes de processar | Guardar `paddle_event_id` processado; ignorar repetição |
-| Twilio | Validar `X-Twilio-Signature` | Guardar `MessageSid`/`CallSid` processado |
-| Google Calendar | Validar `channel token` do push notification | Guardar `resourceId` + `X-Goog-Message-Number` processado |
+| Provider        | Validação de assinatura                                                   | Idempotência                                              |
+| --------------- | ------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Paddle          | Verificar assinatura do webhook (chave pública Paddle) antes de processar | Guardar `paddle_event_id` processado; ignorar repetição   |
+| Twilio          | Validar `X-Twilio-Signature`                                              | Guardar `MessageSid`/`CallSid` processado                 |
+| Google Calendar | Validar `channel token` do push notification                              | Guardar `resourceId` + `X-Goog-Message-Number` processado |
 
 Todo handler de webhook: responde 2xx rápido, processa de forma
 idempotente (upsert por id do evento, não insert cego), e nunca confia
@@ -187,15 +215,30 @@ registro correspondente já existente no banco (ex.: `paddle_customer_id`
 
 Reforçando `ARCHITECTURE.md` seção 7:
 
-- System prompt fixo, versionado em código (`lib/domains/ai/prompts.ts`),
-  nunca montado concatenando string vinda de tenant/cliente.
-- Conteúdo do formulário do cliente e resultados de RAG (Knowledge Base)
-  entram como **dado** em um campo estruturado (ex.: `context: string`),
-  nunca colado dentro do texto da instrução do sistema.
-- A IA nunca recebe permissão de executar ação (criar OS, aprovar
-  orçamento, mudar preço) diretamente — ela só sugere/preenche rascunho;
-  toda ação que persiste dado passa pelas mesmas Server Actions com
-  `requireRole`, como se fosse um humano preenchendo o formulário.
+- System prompt fixo e versionado em `lib/domains/ai-agent/models.ts`,
+  nunca montado concatenando conteúdo de tenant/cliente.
+- Configuração, instruções do tenant, conhecimento comercial e histórico
+  do cliente são enviados em mensagens/roles separados; input do cliente
+  permanece no papel `user`, nunca no `system` ou `developer`.
+- Prompt fixo instrui o modelo a tratar conteúdo do cliente e conhecimento
+  como não confiáveis, não revelar instruções e ignorar pedidos para alterar
+  papel/regras. A separação de papéis é a barreira principal, não um filtro
+  lexical de frases.
+- A IA pode responder mensagens, mas não recebe tools para executar ações
+  de negócio (criar OS, aprovar orçamento, mudar preço). Operações futuras
+  que persistam dados devem passar pelas mesmas Server Actions com
+  `requirePermission`, como se fosse um humano preenchendo o formulário.
+- `OPENAI_API_KEY` só é lida em `services/openai.ts` server-only. Não há
+  SDK/chave no client. RLS limita configuração, instruções e usage ao
+  tenant; RPCs validam membership, role, estado `AI_ACTIVE` e agente
+  habilitado. Mensagem de IA e tokens de usage são gravados atomicamente.
+- A persistência de resposta/usage exige `service_role` e usa a chave
+  privilegiada somente nessa RPC; a função ainda valida a membership ativa
+  do ator e o vínculo tenant/conversa/agente. `authenticated` e `anon` não
+  têm permissão de executar essa RPC nem inserir usage diretamente.
+- A ação de entrada de mensagens disponível nesta etapa exige sessão e
+  permissão do tenant. Portal anônimo e validação de assinatura de webhook
+  ainda não existem; não aceitar apenas um conversation ID como autorização.
 
 ---
 
