@@ -1,8 +1,8 @@
 # Development — SNOR FUNILARIA
 
-> Criado na ETAPA 02 (fundação técnica), atualizado até a ETAPA 09
-> (núcleo do agente de IA). Orçamentos e demais módulos ERP ainda não
-> foram implementados — ver `ARCHITECTURE.md` pro desenho completo.
+> Criado na ETAPA 02 (fundação técnica), atualizado até a ETAPA 10
+> (módulo de Orçamentos). Demais módulos ERP ainda não foram
+> implementados — ver `ARCHITECTURE.md` pro desenho completo.
 
 ---
 
@@ -117,25 +117,26 @@ de núcleo, CRM, conversas e AI Agent foram aplicadas. A migration do AI
 Agent provisiona automaticamente um agente quando um tenant for criado;
 no momento ainda não há tenants registrados nesse projeto remoto.
 
-## Rotas (ETAPA 09)
+## Rotas (ETAPA 09-10)
 
 - `(public)/{login,signup,forgot-password,reset-password}` — fluxo de
   conta, sem autenticação
 - `auth/callback/route.ts` — troca `code` por sessão (confirmação de
   email, recovery, e futuro retorno de OAuth)
 - `(app)/` — protegido: `layout.tsx` redireciona pra `/login` sem sessão;
-  contém CRM (`/customers`, `/vehicles`), Inbox (`/inbox`), configuração do
-  agente (`/settings/ai-agent`) e a home inicial, ainda placeholder
+  contém CRM (`/customers`, `/vehicles`), Orçamentos (`/quotes`), Inbox
+  (`/inbox`), configuração do agente (`/settings/ai-agent`) e a home
+  inicial, ainda placeholder
 - `src/proxy.ts` — proteção de rota "de UX" (Next.js 16 renomeou
   `middleware.ts` pra `proxy.ts`) + renovação do cookie de sessão; nunca
   a única barreira (`(app)/layout.tsx` + RLS são as reais)
 
 ## Estado atual e o que ainda NÃO existe
 
-- CRM (ETAPA 07), conversas/Inbox (ETAPA 08) e núcleo do agente de IA
-  (ETAPA 09) estão implementados. O fluxo de entrada atual é autenticado
-  para membros da oficina; portal público, Twilio e webhooks não fazem
-  parte desta etapa.
+- CRM (ETAPA 07), conversas/Inbox (ETAPA 08), núcleo do agente de IA
+  (ETAPA 09) e Orçamentos (ETAPA 10) estão implementados. O fluxo de
+  entrada atual é autenticado para membros da oficina; portal público,
+  Twilio e webhooks não fazem parte desta etapa.
 - A chamada OpenAI é server-only. Configure `OPENAI_API_KEY` no ambiente
   do servidor antes de habilitar o AI Agent.
 - A migration de IA foi aplicada ao Supabase remoto. Antes de gerar

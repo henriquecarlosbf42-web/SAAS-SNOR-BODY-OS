@@ -278,9 +278,10 @@ implemented in this stage.
 
 ---
 
-## 13. Orçamentos
+## 13. Orçamentos — IMPLEMENTADO (ETAPA 10)
 
-Entidade `quotes` (+ `quote_items`, `quote_photos`). Recebe pedido do
+Entidade `quotes` (+ `quote_items`; `quote_photos` fica pra quando o
+bucket de Storage — seção 9 — for provisionado). Recebe pedido do
 Portal do Cliente ou lançamento manual pela oficina, referencia
 `customer_id` + `vehicle_id`, evolui por `status` (`PENDING → IN_REVIEW
 → QUOTED → APPROVED/REJECTED/EXPIRED/CANCELLED`).
@@ -289,7 +290,14 @@ Dependências: CRM (13→12) e Veículos (13→14). Produz: gatilho pra
 Ordem de Serviço (16) quando aprovado.
 
 `access_token` (uuid) é gerado no momento da criação do quote — é o que
-sustenta o acesso do cliente final pelo Portal.
+sustenta o acesso do cliente final pelo Portal (rota pública ainda não
+implementada, ver seção 20).
+
+Um orçamento em estado terminal (`APPROVED/REJECTED/EXPIRED/CANCELLED`)
+nunca reabre nem tem seus `quote_items` editados — validado tanto em
+RLS (delete de `quotes` sempre negado) quanto em código
+(`isQuoteEditable` em `src/lib/domains/orcamento/models.ts`, aplicado
+nas Server Actions de item e escondido na UI).
 
 ---
 

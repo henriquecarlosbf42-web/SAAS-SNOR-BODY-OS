@@ -9,5 +9,6 @@
 grant select, insert, update, delete on
   profiles, tenants, tenant_memberships, tenant_settings, locations,
   customers, vehicles, leads, conversations, messages, conversation_participants,
-  ai_agents, ai_agent_instructions, ai_agent_usage
+  ai_agents, ai_agent_instructions, ai_agent_usage,
+  quotes, quote_items
   to authenticated, anon;

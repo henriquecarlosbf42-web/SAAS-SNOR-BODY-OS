@@ -40,6 +40,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               Vehicles
             </Link>
             <Link
+              href="/quotes"
+              className="text-black/65 hover:text-black dark:text-white/65 dark:hover:text-white"
+            >
+              Quotes
+            </Link>
+            <Link
               href="/inbox"
               className="text-black/65 hover:text-black dark:text-white/65 dark:hover:text-white"
             >
